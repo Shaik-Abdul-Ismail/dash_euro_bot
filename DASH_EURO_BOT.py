@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import json
 import logging
+from flask import Flask  # Import Flask for the web server
 
 # Configure logging to log messages to both a file and the console
 logging.basicConfig(
@@ -15,6 +16,7 @@ logging.basicConfig(
         logging.StreamHandler()  # Also print logs to the console
     ]
 )
+
 # Constants for API and trading parameters
 API_URL = "https://payeer.com/api/trade"
 API_KEY = os.getenv('API_KEY')  # Fetch API key from environment variables
@@ -28,6 +30,14 @@ INITIAL_GRID_SELL_LEVELS = [
     150.0, 100.0, 120.0, 80.0, 70.0, 60.0, 50.0, 45.0, 42.0, 41.0,
     39.0, 38.0, 37.0, 36.0, 35.0, 34.0, 33.0, 32.0, 31.0, 30.0, 28.0, 27.0
 ]  # Sell grid levels
+
+# Initialize Flask app for health checks
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
 def generate_signature(method, params):
     """
     Generate HMAC-SHA256 signature for API requests.
@@ -129,10 +139,8 @@ def detect_trend(prices, short_window=10, long_window=50):
     """
     if len(prices) < long_window:
         return 'neutral'  # Not enough data to determine trend
-    
     short_sma = sum(prices[-short_window:]) / short_window
     long_sma = sum(prices[-long_window:]) / long_window
-    
     if short_sma > long_sma:
         return 'up'
     elif short_sma < long_sma:
@@ -156,30 +164,23 @@ def main():
                 logging.error("Failed to fetch market price. Retrying...")  # Log failure
                 time.sleep(10)
                 continue
-            
             logging.info(f"Current Price: {current_price} EUR")  # Log the current price
             historical_prices.append(current_price)
-            
             # Keep only the last 100 prices for trend analysis
             if len(historical_prices) > 100:
                 historical_prices.pop(0)
-            
             # Detect the current market trend
             trend = detect_trend(historical_prices)
             logging.info(f"Detected Trend: {trend}")  # Log the detected trend
-            
             # Dynamically adjust grid levels based on the current price
             grid_buy_levels = adjust_grid_levels(current_price, INITIAL_GRID_BUY_LEVELS, compression_factor=0.9)
             grid_sell_levels = adjust_grid_levels(current_price, INITIAL_GRID_SELL_LEVELS, compression_factor=0.9)
-            
             # Fetch account balances
             balances = get_balances()
             eur_balance = float(balances.get('EUR', {}).get('total', 0.0))
             dash_balance = float(balances.get('DASH', {}).get('total', 0.0))
-            
             # Calculate maximum buy amount based on risk percentage
             max_buy_amount = calculate_position_size(eur_balance, RISK_PER_TRADE, current_price)
-            
             # Place dynamic buy orders in an uptrend or neutral market
             if trend != 'down':  # Only buy in an uptrend or neutral market
                 for level in sorted(grid_buy_levels):
@@ -189,19 +190,16 @@ def main():
                         place_order('buy', buy_amount, current_price)
                         last_buy_price = current_price
                         break
-            
             # Implement trailing stop-loss for sell orders
             if last_buy_price and dash_balance > BALANCE_THRESHOLD:
                 if trailing_stop is None or current_price > trailing_stop:
                     trailing_stop = current_price * (1 - TRAILING_STOP_PERCENT)
                     logging.info(f"Updated trailing stop to {trailing_stop} EUR")  # Log trailing stop update
-                
                 if current_price <= trailing_stop:
                     logging.info(f"Selling all DASH at {current_price} EUR due to trailing stop")  # Log sell order
                     place_order('sell', dash_balance, current_price)
                     trailing_stop = None
                     last_buy_price = None
-            
             # Place dynamic sell orders in a downtrend or neutral market
             if trend != 'up':  # Only sell in a downtrend or neutral market
                 for level in sorted(grid_sell_levels, reverse=True):
@@ -211,14 +209,16 @@ def main():
                         trailing_stop = None
                         last_buy_price = None
                         break
-            
             logging.info("Running successfully")  # Log that the bot is running successfully
             time.sleep(60)  # Wait for 60 seconds before the next iteration
-        
         except Exception as e:
             logging.error(f"An error occurred: {e}")  # Log any errors
             logging.error("Not running")  # Log that the bot is not running
             time.sleep(10)  # Wait for 10 seconds before retrying
 
 if __name__ == "__main__":
+    # Start the Flask web server in a separate thread
+    import threading
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8000)).start()
+    # Run the bot's main function
     main()
