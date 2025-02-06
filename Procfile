@@ -1,1 +1,1 @@
-worker: python bot.py
+worker: python3 DASH_EUR_BOT.py
