@@ -222,4 +222,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-rewite this according to the above and without removing anything because it is very cruicial code. be carefull with this rewitre the entire code
