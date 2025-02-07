@@ -24,6 +24,7 @@ API_SECRET = os.getenv('API_SECRET')  # Fetch API secret from environment variab
 SYMBOL = "POL_EUR"  # Trading pair
 BUY_PRICE = 0.3  # Buy POL at this price
 SELL_PRICE = 2.8  # Sell POL at this price
+INVESTMENT_AMOUNT = 0.2  # Fixed investment amount in EUR
 BALANCE_THRESHOLD = 0.001  # Minimum balance threshold for trading
 
 # Initialize Flask app for health checks
@@ -103,7 +104,7 @@ def get_current_price():
 def main():
     logging.info("Starting Simple Auto Trading Bot...")  # Log when the bot starts
     last_buy_price = None  # Track the last buy price
-
+    pol_bought = False  # Track whether POL has been bought
     while True:
         try:
             # Fetch the current market price
@@ -121,17 +122,19 @@ def main():
             pol_balance = float(balances.get('POL', {}).get('total', 0.0))
 
             # Buy POL at 0.3 EUR if conditions are met
-            if current_price <= BUY_PRICE and eur_balance > BALANCE_THRESHOLD:
-                buy_amount = eur_balance / current_price  # Use all available EUR to buy POL
+            if not pol_bought and current_price <= BUY_PRICE and eur_balance >= INVESTMENT_AMOUNT:
+                buy_amount = INVESTMENT_AMOUNT / current_price  # Use 0.2 EUR to buy POL
                 logging.info(f"Placing BUY order at {current_price} EUR for {buy_amount} POL")  # Log buy order
                 place_order('buy', buy_amount, current_price)
                 last_buy_price = current_price  # Update last buy price
+                pol_bought = True  # Mark POL as bought
 
             # Sell POL at 2.8 EUR if conditions are met
-            if current_price >= SELL_PRICE and pol_balance > BALANCE_THRESHOLD:
+            if pol_bought and current_price >= SELL_PRICE and pol_balance > BALANCE_THRESHOLD:
                 logging.info(f"Selling all POL at {current_price} EUR")  # Log sell order
                 place_order('sell', pol_balance, current_price)
-                last_buy_price = None
+                logging.info("Buy and sell completed. Stopping the bot.")  # Log completion
+                break  # Stop the bot after selling
 
             logging.info("Running successfully")  # Log that the bot is running successfully
             time.sleep(60)  # Wait for 60 seconds before the next iteration
