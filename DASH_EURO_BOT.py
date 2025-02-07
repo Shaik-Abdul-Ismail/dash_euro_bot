@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import json
 import logging
+from flask import Flask  # Import Flask for the web server
 
 # Configure logging to log messages to both a file and the console
 logging.basicConfig(
@@ -22,8 +23,15 @@ API_KEY = os.getenv('API_KEY')  # Fetch API key from environment variables
 API_SECRET = os.getenv('API_SECRET')  # Fetch API secret from environment variables
 SYMBOL = "POL_EUR"  # Trading pair
 BUY_PRICE = 0.3  # Buy POL at this price
-SELL_PRICE_INCREASE_PERCENT = 0.02  # Sell when the price increases by 2%
+SELL_PRICE = 2.8  # Sell POL at this price
 BALANCE_THRESHOLD = 0.001  # Minimum balance threshold for trading
+
+# Initialize Flask app for health checks
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
 
 def generate_signature(method, params):
     """
@@ -95,7 +103,6 @@ def get_current_price():
 def main():
     logging.info("Starting Simple Auto Trading Bot...")  # Log when the bot starts
     last_buy_price = None  # Track the last buy price
-    trailing_stop = None  # Initialize trailing stop
 
     while True:
         try:
@@ -113,25 +120,18 @@ def main():
             eur_balance = float(balances.get('EUR', {}).get('total', 0.0))
             pol_balance = float(balances.get('POL', {}).get('total', 0.0))
 
-            # Buy POL at 0.31 EUR if conditions are met
+            # Buy POL at 0.3 EUR if conditions are met
             if current_price <= BUY_PRICE and eur_balance > BALANCE_THRESHOLD:
                 buy_amount = eur_balance / current_price  # Use all available EUR to buy POL
                 logging.info(f"Placing BUY order at {current_price} EUR for {buy_amount} POL")  # Log buy order
                 place_order('buy', buy_amount, current_price)
                 last_buy_price = current_price  # Update last buy price
 
-            # Implement trailing stop-loss for sell orders
-            if last_buy_price and pol_balance > BALANCE_THRESHOLD:
-                target_sell_price = last_buy_price * (1 + SELL_PRICE_INCREASE_PERCENT)
-                if trailing_stop is None or current_price > trailing_stop:
-                    trailing_stop = current_price * (1 - SELL_PRICE_INCREASE_PERCENT)
-                    logging.info(f"Updated trailing stop to {trailing_stop} EUR")  # Log trailing stop update
-
-                if current_price >= target_sell_price:
-                    logging.info(f"Selling all POL at {current_price} EUR due to price increase")  # Log sell order
-                    place_order('sell', pol_balance, current_price)
-                    trailing_stop = None
-                    last_buy_price = None
+            # Sell POL at 2.8 EUR if conditions are met
+            if current_price >= SELL_PRICE and pol_balance > BALANCE_THRESHOLD:
+                logging.info(f"Selling all POL at {current_price} EUR")  # Log sell order
+                place_order('sell', pol_balance, current_price)
+                last_buy_price = None
 
             logging.info("Running successfully")  # Log that the bot is running successfully
             time.sleep(60)  # Wait for 60 seconds before the next iteration
@@ -142,4 +142,9 @@ def main():
             time.sleep(10)  # Wait for 10 seconds before retrying
 
 if __name__ == "__main__":
+    # Start the Flask web server in a separate thread
+    import threading
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8000)).start()
+
+    # Run the bot's main function
     main()
