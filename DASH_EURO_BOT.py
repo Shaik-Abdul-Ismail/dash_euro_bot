@@ -5,25 +5,34 @@ import hmac
 import hashlib
 import json
 import logging
-from flask import Flask  # Import Flask for the web server
+from flask import Flask
 
 # Configure logging to log messages to both a file and the console
 logging.basicConfig(
-    level=logging.INFO,  # Set the logging level to INFO
-    format='%(asctime)s - %(levelname)s - %(message)s',  # Define the log format
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("bot.log"),  # Log to a file named "bot.log"
-        logging.StreamHandler()  # Also print logs to the console
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
     ]
 )
 
 # Constants for API and trading parameters
 API_URL = "https://payeer.com/api/trade"
-API_KEY = os.getenv('API_KEY')  # Fetch API key from environment variables
-API_SECRET = os.getenv('API_SECRET')  # Fetch API secret from environment variables
-SYMBOL = "POL_EUR"  # Trading pair
-INVESTMENT_AMOUNT = 0.2  # Fixed investment amount in EUR
+API_KEY = os.getenv('API_KEY')
+API_SECRET = os.getenv('API_SECRET')
+SYMBOL = "DASH_EUR"
+
+# Trading constraints
+PRICE_PRECISION = 2  # Price precision (2 decimal places)
+MIN_PRICE = 4375.74  # Minimum price for creating an order
+MAX_PRICE = 83139.00  # Maximum price for creating an order
+MIN_AMOUNT = 0.0001  # Minimum amount to create an order
+MIN_VALUE = 0.5  # Minimum value to create an order
+
 BALANCE_THRESHOLD = 0.001  # Minimum balance threshold for trading
+RISK_PER_TRADE = 0.01  # Risk 1% of total balance per trade
+TRAILING_STOP_PERCENT = 0.02  # Trailing stop at 2% below current price
 
 # Initialize Flask app for health checks
 app = Flask(__name__)
@@ -50,7 +59,7 @@ def get_balances():
     :return: JSON response containing account balances
     """
     method = "account"
-    payload = {'ts': int(time.time() * 1000)}  # Current timestamp in milliseconds
+    payload = {'ts': int(time.time() * 1000)}
     headers = {
         'Content-Type': 'application/json',
         'API-ID': API_KEY,
@@ -69,11 +78,11 @@ def place_order(order_type, amount, price):
     """
     method = "order_create"
     payload = {
-        'ts': int(time.time() * 1000),  # Current timestamp in milliseconds
+        'ts': int(time.time() * 1000),
         'pair': SYMBOL,
         'type': order_type,
-        'amount': amount,
-        'price': price
+        'amount': round(amount, 4),  # Ensure amount meets MIN_AMOUNT precision
+        'price': round(price, PRICE_PRECISION)  # Ensure price meets PRICE_PRECISION
     }
     headers = {
         'Content-Type': 'application/json',
@@ -99,50 +108,83 @@ def get_current_price():
     data = response.json() if response.status_code == 200 else {}
     return float(data['pairs'][SYMBOL]['last']) if data.get('success') else None
 
+def calculate_position_size(balance, risk_percentage, price):
+    """
+    Calculate the position size based on the risk percentage.
+    :param balance: Total balance available for trading
+    :param risk_percentage: Percentage of balance to risk per trade
+    :param price: Current market price
+    :return: Position size (amount of asset to trade)
+    """
+    max_buy_amount = (balance * risk_percentage) / price
+    # Ensure the calculated amount meets MIN_AMOUNT and MIN_VALUE constraints
+    min_required_amount = max(MIN_AMOUNT, MIN_VALUE / price)
+    return max(min_required_amount, max_buy_amount)
+
 def main():
-    logging.info("Starting Simple Auto Trading Bot...")  # Log when the bot starts
+    logging.info("Starting Advanced Auto Trading Bot...")  # Log when the bot starts
 
-    try:
-        # Fetch the current market price
-        current_price = get_current_price()
-        if current_price is None:
-            logging.error("Failed to fetch market price.")  # Log failure
-            return
+    trailing_stop = None  # Initialize trailing stop
+    last_buy_price = None  # Track the last buy price
+    historical_prices = []  # Store historical prices for trend detection
 
-        logging.info(f"Current Price: {current_price} EUR")  # Log the current price
+    while True:
+        try:
+            # Fetch the current market price
+            current_price = get_current_price()
+            if current_price is None:
+                logging.error("Failed to fetch market price. Retrying...")
+                time.sleep(10)
+                continue
 
-        # Fetch account balances
-        balances = get_balances()
-        eur_balance = float(balances.get('EUR', {}).get('total', 0.0))
-        pol_balance = float(balances.get('POL', {}).get('total', 0.0))
+            # Ensure the price is within allowed limits
+            if current_price < MIN_PRICE or current_price > MAX_PRICE:
+                logging.error(f"Price {current_price} EUR is out of bounds. Skipping iteration.")
+                time.sleep(60)
+                continue
 
-        # Place a BUY order at the current market price
-        if eur_balance >= INVESTMENT_AMOUNT:
-            buy_amount = INVESTMENT_AMOUNT / current_price  # Use 0.2 EUR to buy POL
-            logging.info(f"Placing BUY order at {current_price} EUR for {buy_amount} POL")  # Log buy order
-            place_order('buy', buy_amount, current_price)
-        else:
-            logging.error("Not enough EUR balance to place a buy order.")
-            return
+            logging.info(f"Current Price: {current_price} EUR")
+            historical_prices.append(current_price)
 
-        # Wait for a short moment to ensure the buy order is processed
-        time.sleep(5)
+            # Keep only the last 100 prices for trend analysis
+            if len(historical_prices) > 100:
+                historical_prices.pop(0)
 
-        # Place a SELL order at the current market price
-        updated_balances = get_balances()
-        pol_balance = float(updated_balances.get('POL', {}).get('total', 0.0))
-        if pol_balance > BALANCE_THRESHOLD:
-            logging.info(f"Placing SELL order at {current_price} EUR for {pol_balance} POL")  # Log sell order
-            place_order('sell', pol_balance, current_price)
-        else:
-            logging.error("Not enough POL balance to place a sell order.")
-            return
+            # Fetch account balances
+            balances = get_balances()
+            eur_balance = float(balances.get('EUR', {}).get('total', 0.0))
+            dash_balance = float(balances.get('DASH', {}).get('total', 0.0))
 
-        logging.info("Buy and sell completed. Stopping the bot.")  # Log completion
+            # Calculate maximum buy amount based on risk percentage
+            max_buy_amount = calculate_position_size(eur_balance, RISK_PER_TRADE, current_price)
 
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")  # Log any errors
-        logging.error("Not running")  # Log that the bot is not running
+            # Place a BUY order if conditions are met
+            if eur_balance > BALANCE_THRESHOLD and max_buy_amount >= MIN_AMOUNT:
+                buy_amount = min(max_buy_amount, eur_balance / current_price)
+                buy_price = current_price
+                logging.info(f"Placing BUY order at {buy_price:.2f} EUR for {buy_amount:.4f} DASH")
+                place_order('buy', buy_amount, buy_price)
+                last_buy_price = current_price
+
+            # Implement trailing stop-loss for sell orders
+            if last_buy_price and dash_balance > BALANCE_THRESHOLD:
+                if trailing_stop is None or current_price > trailing_stop:
+                    trailing_stop = current_price * (1 - TRAILING_STOP_PERCENT)
+                    logging.info(f"Updated trailing stop to {trailing_stop:.2f} EUR")
+
+                if current_price <= trailing_stop:
+                    logging.info(f"Selling all DASH at {current_price:.2f} EUR due to trailing stop")
+                    place_order('sell', dash_balance, current_price)
+                    trailing_stop = None
+                    last_buy_price = None
+
+            logging.info("Running successfully")
+            time.sleep(60)
+
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
+            logging.error("Not running")
+            time.sleep(10)
 
 if __name__ == "__main__":
     # Start the Flask web server in a separate thread
