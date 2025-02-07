@@ -5,29 +5,29 @@ import hmac
 import hashlib
 import json
 import logging
-from flask import Flask  # Import Flask for the web server
+from flask import Flask
 
-# Configure logging to log messages to both a file and the console
+# Configure logging
 logging.basicConfig(
-    level=logging.INFO,  # Set the logging level to INFO
-    format='%(asctime)s - %(levelname)s - %(message)s',  # Define the log format
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("bot.log"),  # Log to a file named "bot.log"
-        logging.StreamHandler()  # Also print logs to the console
+        logging.FileHandler("bot.log"),  # Log to file
+        logging.StreamHandler()  # Log to console
     ]
 )
 
-# Constants for API and trading parameters
+# Payeer API Constants
 API_URL = "https://payeer.com/api/trade"
-API_KEY = os.getenv('API_KEY')  # Fetch API key from environment variables
-API_SECRET = os.getenv('API_SECRET')  # Fetch API secret from environment variables
+API_KEY = os.getenv('API_KEY')  # Ensure API_KEY is set
+API_SECRET = os.getenv('API_SECRET')  # Ensure API_SECRET is set
 SYMBOL = "POL_EUR"  # Trading pair
 BUY_PRICE = 0.3  # Buy POL at this price
 SELL_PRICE = 2.8  # Sell POL at this price
-INVESTMENT_AMOUNT = 0.2  # Fixed investment amount in EUR
+INVESTMENT_AMOUNT = 0.2  # Amount in EUR to invest
 BALANCE_THRESHOLD = 0.001  # Minimum balance threshold for trading
 
-# Initialize Flask app for health checks
+# Initialize Flask app for monitoring
 app = Flask(__name__)
 
 @app.route('/')
@@ -44,9 +44,7 @@ def generate_signature(method, params):
     return H.hexdigest()
 
 def get_balances():
-    """
-    Fetch account balances from the exchange.
-    """
+    """Fetch account balances from Payeer."""
     method = "account"
     payload = {'ts': int(time.time() * 1000)}
     headers = {
@@ -55,12 +53,12 @@ def get_balances():
         'API-SIGN': generate_signature(method, payload)
     }
     response = requests.post(f"{API_URL}/{method}", headers=headers, json=payload)
+    
+    logging.debug(f"Balance response: {response.status_code}, {response.text}")
     return response.json() if response.status_code == 200 else {}
 
 def place_order(order_type, amount, price):
-    """
-    Place a buy or sell order on the exchange.
-    """
+    """Place a buy or sell order on Payeer."""
     method = "order_create"
     payload = {
         'ts': int(time.time() * 1000),
@@ -75,12 +73,12 @@ def place_order(order_type, amount, price):
         'API-SIGN': generate_signature(method, payload)
     }
     response = requests.post(f"{API_URL}/{method}", headers=headers, json=payload)
+    
+    logging.info(f"Order response: {response.status_code}, {response.text}")
     return response.json() if response.status_code == 200 else {}
 
 def get_current_price():
-    """
-    Fetch the current market price for the trading pair.
-    """
+    """Fetch the current market price for the trading pair."""
     method = "ticker"
     payload = {'ts': int(time.time() * 1000), 'pair': SYMBOL}
     headers = {
@@ -90,6 +88,8 @@ def get_current_price():
     }
     response = requests.post(f"{API_URL}/{method}", headers=headers, json=payload)
     data = response.json() if response.status_code == 200 else {}
+    
+    logging.debug(f"Price response: {data}")
     return float(data['pairs'][SYMBOL]['last']) if data.get('success') else None
 
 def main():
@@ -98,38 +98,52 @@ def main():
     pol_bought = False
     while True:
         try:
+            # Fetch current price
             current_price = get_current_price()
             if current_price is None:
                 logging.error("Failed to fetch market price. Retrying...")
                 time.sleep(10)
                 continue
-
+            
             logging.info(f"Current Price: {current_price} EUR")
+            
+            # Fetch account balances
             balances = get_balances()
             eur_balance = float(balances.get('EUR', {}).get('total', 0.0))
             pol_balance = float(balances.get('POL', {}).get('total', 0.0))
-
+            
+            logging.info(f"EUR Balance: {eur_balance}, POL Balance: {pol_balance}")
+            
+            # Buy POL if conditions are met
             if not pol_bought and current_price <= BUY_PRICE and eur_balance >= INVESTMENT_AMOUNT:
-                buy_amount = INVESTMENT_AMOUNT / current_price
+                buy_amount = INVESTMENT_AMOUNT / current_price  # Calculate amount of POL to buy
                 logging.info(f"Placing BUY order at {current_price} EUR for {buy_amount} POL")
-                place_order('buy', buy_amount, current_price)
-                last_buy_price = current_price
-                pol_bought = True
-
+                response = place_order('buy', buy_amount, current_price)
+                if response.get('success'):
+                    last_buy_price = current_price
+                    pol_bought = True
+                    logging.info("Buy order placed successfully.")
+                else:
+                    logging.error(f"Buy order failed: {response}")
+            
+            # Sell POL if conditions are met
             if pol_bought and current_price >= SELL_PRICE and pol_balance > BALANCE_THRESHOLD:
                 logging.info(f"Selling all POL at {current_price} EUR")
-                place_order('sell', pol_balance, current_price)
-                logging.info("Buy and sell completed. Stopping the bot.")
-                break
-
-            logging.info("Running successfully")
-            time.sleep(60)
+                response = place_order('sell', pol_balance, current_price)
+                if response.get('success'):
+                    logging.info("Sell order placed successfully. Stopping bot.")
+                    break
+                else:
+                    logging.error(f"Sell order failed: {response}")
+            
+            logging.info("Bot running successfully.")
+            time.sleep(60)  # Wait for 60 seconds before checking again
         except Exception as e:
             logging.error(f"An error occurred: {e}")
-            logging.error("Not running")
-            time.sleep(10)
+            time.sleep(10)  # Retry after 10 seconds
 
 if __name__ == "__main__":
     import threading
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8000)).start()
     main()
+
