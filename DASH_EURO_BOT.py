@@ -22,8 +22,6 @@ API_URL = "https://payeer.com/api/trade"
 API_KEY = os.getenv('API_KEY')  # Fetch API key from environment variables
 API_SECRET = os.getenv('API_SECRET')  # Fetch API secret from environment variables
 SYMBOL = "POL_EUR"  # Trading pair
-BUY_PRICE = 0.3  # Buy POL at this price
-SELL_PRICE = 2.8  # Sell POL at this price
 INVESTMENT_AMOUNT = 0.2  # Fixed investment amount in EUR
 BALANCE_THRESHOLD = 0.001  # Minimum balance threshold for trading
 
@@ -103,46 +101,48 @@ def get_current_price():
 
 def main():
     logging.info("Starting Simple Auto Trading Bot...")  # Log when the bot starts
-    last_buy_price = None  # Track the last buy price
-    pol_bought = False  # Track whether POL has been bought
-    while True:
-        try:
-            # Fetch the current market price
-            current_price = get_current_price()
-            if current_price is None:
-                logging.error("Failed to fetch market price. Retrying...")  # Log failure
-                time.sleep(10)
-                continue
 
-            logging.info(f"Current Price: {current_price} EUR")  # Log the current price
+    try:
+        # Fetch the current market price
+        current_price = get_current_price()
+        if current_price is None:
+            logging.error("Failed to fetch market price.")  # Log failure
+            return
 
-            # Fetch account balances
-            balances = get_balances()
-            eur_balance = float(balances.get('EUR', {}).get('total', 0.0))
-            pol_balance = float(balances.get('POL', {}).get('total', 0.0))
+        logging.info(f"Current Price: {current_price} EUR")  # Log the current price
 
-            # Buy POL at 0.3 EUR if conditions are met
-            if not pol_bought and current_price <= BUY_PRICE and eur_balance >= INVESTMENT_AMOUNT:
-                buy_amount = INVESTMENT_AMOUNT / current_price  # Use 0.2 EUR to buy POL
-                logging.info(f"Placing BUY order at {current_price} EUR for {buy_amount} POL")  # Log buy order
-                place_order('buy', buy_amount, current_price)
-                last_buy_price = current_price  # Update last buy price
-                pol_bought = True  # Mark POL as bought
+        # Fetch account balances
+        balances = get_balances()
+        eur_balance = float(balances.get('EUR', {}).get('total', 0.0))
+        pol_balance = float(balances.get('POL', {}).get('total', 0.0))
 
-            # Sell POL at 2.8 EUR if conditions are met
-            if pol_bought and current_price >= SELL_PRICE and pol_balance > BALANCE_THRESHOLD:
-                logging.info(f"Selling all POL at {current_price} EUR")  # Log sell order
-                place_order('sell', pol_balance, current_price)
-                logging.info("Buy and sell completed. Stopping the bot.")  # Log completion
-                break  # Stop the bot after selling
+        # Place a BUY order at the current market price
+        if eur_balance >= INVESTMENT_AMOUNT:
+            buy_amount = INVESTMENT_AMOUNT / current_price  # Use 0.2 EUR to buy POL
+            logging.info(f"Placing BUY order at {current_price} EUR for {buy_amount} POL")  # Log buy order
+            place_order('buy', buy_amount, current_price)
+        else:
+            logging.error("Not enough EUR balance to place a buy order.")
+            return
 
-            logging.info("Running successfully")  # Log that the bot is running successfully
-            time.sleep(60)  # Wait for 60 seconds before the next iteration
+        # Wait for a short moment to ensure the buy order is processed
+        time.sleep(5)
 
-        except Exception as e:
-            logging.error(f"An error occurred: {e}")  # Log any errors
-            logging.error("Not running")  # Log that the bot is not running
-            time.sleep(10)  # Wait for 10 seconds before retrying
+        # Place a SELL order at the current market price
+        updated_balances = get_balances()
+        pol_balance = float(updated_balances.get('POL', {}).get('total', 0.0))
+        if pol_balance > BALANCE_THRESHOLD:
+            logging.info(f"Placing SELL order at {current_price} EUR for {pol_balance} POL")  # Log sell order
+            place_order('sell', pol_balance, current_price)
+        else:
+            logging.error("Not enough POL balance to place a sell order.")
+            return
+
+        logging.info("Buy and sell completed. Stopping the bot.")  # Log completion
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")  # Log any errors
+        logging.error("Not running")  # Log that the bot is not running
 
 if __name__ == "__main__":
     # Start the Flask web server in a separate thread
