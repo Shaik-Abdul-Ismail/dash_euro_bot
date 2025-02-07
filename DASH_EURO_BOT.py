@@ -25,7 +25,7 @@ SYMBOL = "DASH_EUR"  # Trading pair
 BALANCE_THRESHOLD = 0.001  # Minimum balance threshold for trading
 RISK_PER_TRADE = 0.01  # Risk 1% of total balance per trade
 TRAILING_STOP_PERCENT = 0.02  # Trailing stop at 2% below current price
-INITIAL_GRID_BUY_LEVELS = [18.0, 15.0, 16.0, 17.0, 19.0, 20.0, 21.0, 22.5, 23.0, 23.5]  # Buy grid levels
+INITIAL_GRID_BUY_LEVELS = [18.0, 15.0, 16.0, 17.0, 19.0, 20.0, 21.0, 22.5, 23.0, 23.5, 24.0, 24.1]  # Buy grid levels
 INITIAL_GRID_SELL_LEVELS = [
     150.0, 100.0, 120.0, 80.0, 70.0, 60.0, 50.0, 45.0, 42.0, 41.0,
     39.0, 38.0, 37.0, 36.0, 35.0, 34.0, 33.0, 32.0, 31.0, 30.0, 28.0, 27.0
