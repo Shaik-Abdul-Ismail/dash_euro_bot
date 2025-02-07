@@ -21,7 +21,7 @@ API_URL = "https://payeer.com/api/trade"
 API_KEY = os.getenv('API_KEY')  # Fetch API key from environment variables
 API_SECRET = os.getenv('API_SECRET')  # Fetch API secret from environment variables
 SYMBOL = "POL_EUR"  # Trading pair
-BUY_PRICE = 0.31  # Buy POL at this price
+BUY_PRICE = 0.3  # Buy POL at this price
 SELL_PRICE_INCREASE_PERCENT = 0.02  # Sell when the price increases by 2%
 BALANCE_THRESHOLD = 0.001  # Minimum balance threshold for trading
 
