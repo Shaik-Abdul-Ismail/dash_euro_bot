@@ -17,7 +17,7 @@ TRAILING_STOP_PERCENTAGE = 2  # Trailing stop percentage (e.g., 2%)
 MAX_RETRIES = 5  # Maximum retries for API calls
 RETRY_BACKOFF_FACTOR = 2  # Exponential backoff factor
 HEALTH_CHECK_PORT = 8000  # Port for health checks
-BUY_AMOUNT = 0.1  # Default buy amount (can be adjusted dynamically)
+BUY_AMOUNT = 0.4  # Default buy amount (can be adjusted dynamically)
 
 # Active orders tracking
 active_orders = []  # List to track active buy orders
