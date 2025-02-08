@@ -164,42 +164,39 @@ def trading_bot():
             min_value = pair_limits["min_value"]
 
             # Adjust BUY_AMOUNT to meet both min_amount and min_value
-            BUY_AMOUNT = max(min_amount, min_value / last_price)
+            BUY_AMOUNT = max(min_amount, MIN_INVESTMENT / last_price)
             print(f"Adjusted BUY_AMOUNT to {BUY_AMOUNT} to meet minimum requirements.")
 
-            # Define multiple buy prices (grid levels)
-            buy_prices = [last_price * 0.99, last_price * 0.98, last_price * 0.97]  # Example grid levels
-
-            # Verify available balance for all buy orders
+            # Verify available balance for the buy order
             quote_currency = PAIR.split("_")[1]  # Extract quote currency (e.g., EUR)
             available_balance = float(balance.get(quote_currency, {}).get("available", 0))
-            total_buy_value = sum(BUY_AMOUNT * price for price in buy_prices)
+            required_balance = BUY_AMOUNT * last_price
 
             # Wait until sufficient balance is available
-            while available_balance < total_buy_value:
+            while available_balance < required_balance:
                 print(
-                    f"Insufficient balance in {quote_currency}. Available: {available_balance}, Required: {total_buy_value}"
+                    f"Insufficient balance in {quote_currency}. Available: {available_balance}, Required: {required_balance}"
                 )
                 print("Waiting for sufficient balance...")
                 time.sleep(60)  # Wait for 1 minute before checking again
                 balance = get_balance()
                 available_balance = float(balance.get(quote_currency, {}).get("available", 0))
 
-            # Place multiple buy orders
-            for price in buy_prices:
-                print(f"Placing buy order at {price}...")
-                buy_order_id = place_order(PAIR, "buy", BUY_AMOUNT, price)
-                if buy_order_id:
-                    print(f"Buy order placed successfully. Order ID: {buy_order_id}")
-                    active_orders.append({
-                        "order_id": buy_order_id,
-                        "buy_price": price,
-                        "amount": BUY_AMOUNT,
-                        "trailing_stop": None,
-                        "highest_price": price
-                    })
-                else:
-                    print(f"Failed to place buy order at {price}.")
+            # Place a single buy order
+            print(f"Placing buy order at {last_price}...")
+            buy_order_id = place_order(PAIR, "buy", BUY_AMOUNT, last_price)
+            if buy_order_id:
+                print(f"Buy order placed successfully. Order ID: {buy_order_id}")
+                active_orders.append({
+                    "order_id": buy_order_id,
+                    "buy_price": last_price,
+                    "amount": BUY_AMOUNT,
+                    "trailing_stop": None,
+                    "highest_price": last_price
+                })
+            else:
+                print(f"Failed to place buy order at {last_price}.")
+                continue
 
             # Monitor all active orders
             while active_orders:
@@ -236,10 +233,12 @@ def trading_bot():
                             else:
                                 print("Failed to place sell order.")
                             active_orders.remove(order)  # Remove the order from active tracking
+                            break  # Exit the loop to place a new buy order
 
                     elif buy_order.get("status") == "canceled":
                         print(f"Buy order {order_id} was canceled.")
                         active_orders.remove(order)  # Remove the canceled order
+                        break  # Exit the loop to place a new buy order
 
                 time.sleep(10)  # Poll every 10 seconds
 
