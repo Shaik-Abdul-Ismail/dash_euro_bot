@@ -5,6 +5,8 @@ import hashlib
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 
 # Configuration
 API_ID = "d3245bd8-5bd6-474c-8ff7-f6913cd11f1b"
@@ -15,6 +17,7 @@ STOP_LOSS_PERCENTAGE = 5  # Stop loss percentage
 PROFIT_TARGET_PERCENTAGE = 10  # Profit target percentage
 MAX_RETRIES = 5  # Maximum retries for API calls
 RETRY_BACKOFF_FACTOR = 2  # Exponential backoff factor
+HEALTH_CHECK_PORT = 8000  # Port for health checks
 
 # Helper Functions
 def generate_signature(method, req_body):
@@ -152,6 +155,22 @@ def monitor_orders(buy_order_id, sell_order_id, buy_price, sell_price):
 
         time.sleep(10)  # Poll every 10 seconds
 
+# Health Check Server
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """Respond to health check requests."""
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def start_health_check_server(port):
+    """Start a lightweight HTTP server for health checks."""
+    server_address = ("", port)
+    httpd = HTTPServer(server_address, HealthCheckHandler)
+    print(f"Health check server started on port {port}")
+    httpd.serve_forever()
+
 # Main Bot Logic
 def trading_bot():
     global BUY_AMOUNT  # Declare BUY_AMOUNT as global to modify it
@@ -213,4 +232,10 @@ def trading_bot():
         print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
+    # Start health check server in a separate thread
+    health_check_thread = threading.Thread(target=start_health_check_server, args=(HEALTH_CHECK_PORT,))
+    health_check_thread.daemon = True
+    health_check_thread.start()
+
+    # Run the trading bot
     trading_bot()
