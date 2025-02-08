@@ -1,0 +1,15 @@
+name: Make Script Executable
+on: [push]
+
+jobs:
+  make_executable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Make script executable
+        run: chmod +x run_all.sh
+
+      - name: Run the script
+        run: ./run_all.sh
