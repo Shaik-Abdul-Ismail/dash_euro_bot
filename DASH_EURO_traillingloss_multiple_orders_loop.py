@@ -17,7 +17,8 @@ TRAILING_STOP_PERCENTAGE = 2  # Trailing stop percentage (e.g., 2%)
 MAX_RETRIES = 5  # Maximum retries for API calls
 RETRY_BACKOFF_FACTOR = 2  # Exponential backoff factor
 HEALTH_CHECK_PORT = 8000  # Port for health checks
-BUY_AMOUNT = 0.4  # Default buy amount (can be adjusted dynamically)
+MIN_INVESTMENT = 0.4  # Minimum investment in EUR
+BUY_AMOUNT = 0.4  # Default buy amount (minimum investment)
 
 # Active orders tracking
 active_orders = []  # List to track active buy orders
@@ -155,8 +156,9 @@ def trading_bot():
             # Fetch pair limits
             pair_limits = get_pair_limits(PAIR)
             if not pair_limits:
-                print(f"Failed to fetch limits for {PAIR}. Exiting...")
-                return
+                print(f"Failed to fetch limits for {PAIR}. Retrying in 60 seconds...")
+                time.sleep(60)
+                continue
 
             min_amount = pair_limits["min_amount"]
             min_value = pair_limits["min_value"]
@@ -172,12 +174,16 @@ def trading_bot():
             quote_currency = PAIR.split("_")[1]  # Extract quote currency (e.g., EUR)
             available_balance = float(balance.get(quote_currency, {}).get("available", 0))
             total_buy_value = sum(BUY_AMOUNT * price for price in buy_prices)
-            if available_balance < total_buy_value:
+
+            # Wait until sufficient balance is available
+            while available_balance < total_buy_value:
                 print(
                     f"Insufficient balance in {quote_currency}. Available: {available_balance}, Required: {total_buy_value}"
                 )
-                time.sleep(60)  # Wait before retrying
-                continue
+                print("Waiting for sufficient balance...")
+                time.sleep(60)  # Wait for 1 minute before checking again
+                balance = get_balance()
+                available_balance = float(balance.get(quote_currency, {}).get("available", 0))
 
             # Place multiple buy orders
             for price in buy_prices:
